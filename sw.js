@@ -1,12 +1,16 @@
 // Split Money service worker: keeps the app usable with no internet.
-// Bump VERSION whenever you change any app file, so phones pick up the new version.
-const VERSION = 'splitmoney-v1';
+// Online: always loads the latest files from the website (so updates show up right away).
+// Offline (or very slow network): uses the copy saved on the phone.
+// Bump VERSION whenever you change any app file.
+const VERSION = 'splitmoney-v2';
 const SHELL = ['./', './index.html', './config.js', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './icon-maskable.png', './apple-touch-icon.png'];
-const FONT_CACHE = 'hisaab-fonts';
+const FONT_CACHE = 'splitmoney-fonts';
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(VERSION)
+    .then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
@@ -31,14 +35,20 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // Google sign-in and Drive calls always go to the network.
+  // Google sign-in and Drive calls always go straight to the network.
   if (url.origin !== self.location.origin) return;
 
-  // App files: answer from cache instantly, refresh the cache in the background.
+  // App files: network first (fresh copy, also saved for offline), saved copy if offline or slow.
+  const key = req.mode === 'navigate' ? './index.html' : url.pathname;
   e.respondWith(caches.open(VERSION).then(async c => {
-    const key = req.mode === 'navigate' ? './index.html' : req;
-    const hit = await c.match(key, { ignoreSearch: req.mode === 'navigate' });
-    const net = fetch(req).then(res => { if (res.ok) c.put(key, res.clone()); return res; }).catch(() => null);
-    return hit || (await net) || new Response('Offline', { status: 503 });
+    const net = fetch(req, { cache: 'no-cache' }).then(res => { if (res.ok) c.put(key, res.clone()); return res; });
+    const slow = new Promise(r => setTimeout(r, 4000, null));
+    try {
+      const res = await Promise.race([net, slow]);
+      if (res) return res;
+    } catch {}
+    const hit = await c.match(key, { ignoreSearch: true });
+    if (hit) return hit;
+    try { return await net; } catch { return new Response('Offline', { status: 503 }); }
   }));
 });
