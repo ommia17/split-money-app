@@ -1,0 +1,957 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Split Money App</title>
+<meta name="description" content="Split shared expenses with friends. Works offline, syncs through Google Drive.">
+<meta name="theme-color" content="#3C39C9">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Split Money">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script src="config.js"></script>
+<style>
+/* Layout: single-column phone-first ledger, sticky top bar, floating "Add expense" button, bottom sheets for forms */
+:root{
+  --paper:#F3F4F9; --surface:#FFFFFF; --sunk:#EAECF5; --ink:#1B1E3D; --muted:#5D6285; --line:#DFE2EE;
+  --accent:#3C39C9; --accent-ink:#FFFFFF; --marigold:#F0A51E; --marigold-ink:#2A1C00;
+  --pos:#0F8655; --neg:#C2352B; --pos-bg:#E3F4EC; --neg-bg:#FBE8E6; --warn:#9A5B00; --warn-bg:#FDF1DC;
+  --h1:#3C39C9; --h2:#0F8655; --h3:#D9821A; --h4:#C2352B; --h5:#1C86B8; --h6:#8A3FB8;
+  --shadow:0 10px 30px -12px rgba(27,30,61,.28);
+  --f-display:"Bricolage Grotesque","Avenir Next","Segoe UI",system-ui,sans-serif;
+  --f-body:"Figtree","Segoe UI",system-ui,-apple-system,sans-serif;
+  --f-num:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root{
+  --paper:#0F1026; --surface:#181A36; --sunk:#22254A; --ink:#ECEDF8; --muted:#A2A6C8; --line:#2B2E55;
+  --accent:#8F8CFF; --accent-ink:#0F1026; --marigold:#F5B940; --marigold-ink:#2A1C00;
+  --pos:#45CE92; --neg:#FF7D70; --pos-bg:#123426; --neg-bg:#3A1A1A; --warn:#F5B940; --warn-bg:#3A2C10;
+  --h1:#8F8CFF; --h2:#45CE92; --h3:#F2A848; --h4:#FF7D70; --h5:#5BC0EE; --h6:#C58AF0;
+  --shadow:0 12px 34px -12px rgba(0,0,0,.6); color-scheme:dark}}
+
+*{box-sizing:border-box}
+html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--paper)}
+[hidden]{display:none!important}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.num{font-family:var(--f-num);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.wrap{max-width:720px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:color-mix(in srgb,var(--paper) 92%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;gap:12px;padding-block:12px}
+.brand{font-family:var(--f-display);font-weight:800;font-size:22px;letter-spacing:-.02em;display:flex;align-items:baseline;gap:8px;background:none;border:0;padding:0}
+.brand small{font-family:var(--f-body);font-weight:500;font-size:12px;color:var(--muted);letter-spacing:0}
+.brand .dot{width:10px;height:10px;border-radius:3px;background:var(--marigold);display:inline-block;transform:translateY(-2px) rotate(45deg)}
+.chip{margin-left:auto;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;white-space:nowrap;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:6px 10px;max-width:58vw;overflow:hidden}
+.chip span{overflow:hidden;text-overflow:ellipsis}
+.chip i{width:7px;height:7px;flex:none;border-radius:50%;background:var(--muted)}
+.chip.ok i{background:var(--pos)} .chip.warn i{background:var(--marigold)} .chip.err i{background:var(--neg)} .chip.busy i{background:var(--accent);animation:pulse 1s infinite alternate}
+@keyframes pulse{to{opacity:.3}}
+
+main{padding-block:18px 120px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;letter-spacing:-.02em}
+h1{font-size:28px;font-weight:800;line-height:1.1}
+h2{font-size:18px;font-weight:600}
+h3{font-size:15px;font-weight:600}
+.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);font-weight:600}
+.muted{color:var(--muted)}
+.stack{display:flex;flex-direction:column;gap:12px}
+.row{display:flex;align-items:center;gap:10px}
+.spacer{flex:1}
+a{color:var(--accent)}
+
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px 14px;font-weight:600;font-size:14px;display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;text-decoration:none;color:var(--ink)}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.danger{color:var(--neg);border-color:color-mix(in srgb,var(--neg) 40%,var(--line))}
+.btn.danger.solid{background:var(--neg);color:#fff;border-color:var(--neg)}
+.btn.ghost{background:transparent;border-color:transparent;padding-inline:8px}
+.btn.sm{padding:6px 10px;font-size:13px;border-radius:8px}
+.btn.block{width:100%}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.icon-btn{width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--surface);display:grid;place-items:center;flex:none}
+
+.hero-bal{padding:18px;border-radius:16px;background:var(--ink);color:var(--paper);display:flex;flex-wrap:wrap;gap:18px 28px}
+.hero-bal .v{font-family:var(--f-num);font-size:22px;font-weight:600;margin-top:2px}
+.hero-bal .eyebrow{color:color-mix(in srgb,var(--paper) 70%,var(--ink))}
+.glist{display:flex;flex-direction:column;gap:10px}
+.gcard{display:flex;align-items:center;gap:14px;padding:14px;border-radius:14px;background:var(--surface);border:1px solid var(--line);text-align:left;width:100%}
+.gcard:hover{border-color:var(--accent)}
+.gcard .meta{min-width:0;flex:1}
+.gcard .name{font-weight:700;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gtile{width:46px;height:46px;border-radius:12px;display:grid;place-items:center;font-family:var(--f-display);font-weight:800;font-size:20px;flex:none;background:color-mix(in srgb,var(--av) 18%,var(--surface));color:var(--av)}
+.bal{text-align:right;flex:none}
+.bal .lbl{font-size:12px}
+.bal .v{font-family:var(--f-num);font-weight:600}
+.pos{color:var(--pos)} .neg{color:var(--neg)}
+.tag{font-size:11px;font-weight:600;padding:1px 6px;border-radius:5px;background:var(--sunk);color:var(--muted);vertical-align:1px}
+
+.empty{padding:28px 20px;border:1.5px dashed var(--line);border-radius:16px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px}
+.empty p{margin:0;max-width:38ch;color:var(--muted)}
+
+.av{width:28px;height:28px;border-radius:50%;display:inline-grid;place-items:center;font-size:12px;font-weight:700;flex:none;background:color-mix(in srgb,var(--av) 22%,var(--surface));color:var(--av);border:2px solid var(--surface)}
+.avs{display:flex}.avs .av+.av{margin-left:-8px}
+
+.ghead{display:flex;align-items:flex-start;gap:12px}
+.ghead .t{min-width:0;flex:1}
+.ghead h1{overflow-wrap:anywhere}
+.viewas{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);flex-wrap:wrap}
+.viewas select{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:4px 8px;font-weight:600;color:var(--ink)}
+.summary{border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.summary.pos{background:var(--pos-bg)} .summary.neg{background:var(--neg-bg)} .summary.even{background:var(--sunk)}
+.summary .big{font-family:var(--f-num);font-size:24px;font-weight:600}
+.summary .lines{font-size:13px;opacity:.85;width:100%}
+.banner{border-radius:12px;padding:10px 12px;font-size:13px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--warn-bg);color:var(--warn)}
+.banner span{flex:1;min-width:180px}
+
+.tabs{display:flex;gap:4px;padding:4px;background:var(--sunk);border-radius:12px}
+.tabs button{flex:1;border:0;background:transparent;padding:8px 6px;border-radius:9px;font-weight:600;color:var(--muted);font-size:14px}
+.tabs button[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+
+.month{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:14px 2px 6px}
+.ledger{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.erow{display:flex;align-items:center;gap:12px;padding:12px 14px;width:100%;background:none;border:0;text-align:left;border-top:1px solid var(--line)}
+.erow:first-child{border-top:0}
+.erow:hover{background:color-mix(in srgb,var(--sunk) 55%,transparent)}
+.date{width:34px;text-align:center;flex:none;line-height:1.05}
+.date b{display:block;font-family:var(--f-num);font-size:17px}
+.date span{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.cat{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;font-weight:800;font-size:13px;flex:none;background:color-mix(in srgb,var(--av) 16%,var(--surface));color:var(--av);font-family:var(--f-display)}
+.erow .mid{flex:1;min-width:0}
+.erow .d{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.erow .s{font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.erow .r{text-align:right;flex:none;font-size:12px}
+.erow .r .num{font-size:14px;font-weight:600;display:block}
+.erow.pay .d{font-weight:500}
+.erow.pay .cat{background:var(--sunk);color:var(--muted)}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px}
+.brow{display:grid;grid-template-columns:minmax(0,34%) 1fr 128px;align-items:center;gap:10px;padding:7px 0}
+.brow .nm{display:flex;align-items:center;gap:8px;font-weight:600;min-width:0}
+.brow .nm span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dbar{position:relative;height:14px;background:var(--sunk);border-radius:4px}
+.dbar::after{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;width:1px;background:var(--muted);opacity:.5}
+.dbar i{position:absolute;top:0;bottom:0;border-radius:3px}
+.brow .v{font-family:var(--f-num);font-weight:600;font-size:13px;text-align:right;min-width:84px}
+.debt{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);flex-wrap:wrap}
+.debt:first-of-type{border-top:0}
+.debt .who{flex:1;min-width:160px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.arrow{color:var(--muted);font-size:13px}
+.switch{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);cursor:pointer}
+.switch input{accent-color:var(--accent);width:16px;height:16px}
+
+.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px}
+.kpi .v{font-family:var(--f-num);font-weight:600;font-size:17px;margin-top:4px;overflow-wrap:anywhere}
+.hbar{display:grid;grid-template-columns:minmax(90px,auto) 1fr auto;gap:10px;align-items:center;padding:6px 0;font-size:14px}
+.hbar .track{height:10px;background:var(--sunk);border-radius:5px;overflow:hidden}
+.hbar .track i{display:block;height:100%;border-radius:5px;background:var(--av)}
+.tbl{width:100%;border-collapse:collapse;font-size:14px}
+.tbl th{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);text-align:right;font-weight:600;padding:6px 4px}
+.tbl th:first-child,.tbl td:first-child{text-align:left}
+.tbl td{padding:8px 4px;border-top:1px solid var(--line);text-align:right}
+.scroll{overflow-x:auto}
+
+.fab{position:fixed;right:max(18px,calc(env(safe-area-inset-right,0px) + 18px));bottom:calc(env(safe-area-inset-bottom,0px) + 20px);z-index:6;background:var(--marigold);color:var(--marigold-ink);border:0;border-radius:16px;padding:14px 20px;font-weight:700;font-size:15px;box-shadow:var(--shadow);display:flex;align-items:center;gap:8px}
+.fab span{font-size:22px;line-height:0;font-weight:500}
+
+.overlay{position:fixed;inset:0;z-index:20;background:rgba(10,11,30,.45);display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--surface);width:100%;max-width:560px;max-height:92%;overflow:auto;border-radius:20px 20px 0 0;padding:8px max(18px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 18px) max(18px,env(safe-area-inset-left,0px));box-shadow:var(--shadow);animation:up .22s ease-out}
+@media (min-width:640px){.overlay{align-items:center}.sheet{border-radius:20px;max-height:88%}}
+@keyframes up{from{transform:translateY(24px);opacity:.6}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.sheet,.chip.busy i{animation:none}}
+.grab{width:40px;height:4px;border-radius:2px;background:var(--line);margin:4px auto 10px}
+.sheet h2{font-size:20px}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label,.lab{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
+.inp{border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:10px 12px;width:100%;min-width:0}
+.inp:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.amt-wrap{display:flex;align-items:center;border:1px solid var(--line);background:var(--paper);border-radius:12px;padding:4px 12px}
+.amt-wrap:focus-within{outline:2px solid var(--accent);outline-offset:-1px}
+.amt-wrap span{font-family:var(--f-num);font-size:22px;color:var(--muted)}
+.amt-wrap input{border:0;background:transparent;font-family:var(--f-num);font-size:28px;font-weight:600;padding:6px 8px;width:100%;min-width:0;outline:none}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cats{display:flex;flex-wrap:wrap;gap:6px}
+.pill{border:1px solid var(--line);background:var(--paper);border-radius:999px;padding:6px 11px;font-size:13px;font-weight:600}
+.pill[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.seg{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:4px;background:var(--sunk);border-radius:10px}
+.seg button{border:0;background:transparent;border-radius:7px;padding:7px 4px;font-size:13px;font-weight:600;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.srow{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line)}
+.srow:first-child{border-top:0}
+.srow .nm{flex:1;min-width:0;display:flex;align-items:center;gap:8px;font-weight:600}
+.srow input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}
+.srow .inp{width:96px;text-align:right;padding:7px 9px;font-family:var(--f-num)}
+.srow .pv{font-family:var(--f-num);font-size:13px;color:var(--muted);min-width:76px;text-align:right}
+.status{font-size:13px;font-weight:600;padding:8px 10px;border-radius:8px;background:var(--sunk)}
+.status.ok{background:var(--pos-bg);color:var(--pos)} .status.bad{background:var(--neg-bg);color:var(--neg)}
+.mrow{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
+.mrow:first-child{border-top:0}
+.confirm{background:var(--neg-bg);border-radius:10px;padding:10px 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:14px}
+.sheet .actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;padding-top:6px}
+.sect{border-top:1px solid var(--line);padding-top:14px;display:flex;flex-direction:column;gap:10px}
+.sect p{margin:0;font-size:14px;color:var(--muted)}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 86px);z-index:30;background:var(--ink);color:var(--paper);padding:10px 16px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:var(--shadow);max-width:calc(100% - 32px)}
+.note{font-size:12px;color:var(--muted)}
+@media (max-width:420px){.kpis{grid-template-columns:1fr 1fr}.kpis .kpi:last-child{grid-column:span 2}h1{font-size:24px}.brow .v{min-width:70px}.brand small{display:none}}
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <button class="brand" data-act="home" aria-label="Split Money home"><span class="dot"></span>Split Money <small>split it fair</small></button>
+  <button class="chip" id="sync" data-act="chip" aria-label="Sync status and settings"><i></i><span>Starting…</span></button>
+</div></header>
+<main class="wrap" id="view"></main>
+<button class="fab" id="fab" hidden data-act="add-expense"><span>+</span> Add expense</button>
+<div class="overlay" id="overlay" hidden><div class="sheet" id="sheet" role="dialog" aria-modal="true"></div></div>
+<div class="toast" id="toast" hidden role="status"></div>
+<input type="file" id="importfile" accept="application/json,.json" hidden>
+
+<script>
+(() => {
+'use strict';
+const CFG = window.HISAAB_CONFIG || {};
+const DRIVE_READY = !!CFG.GOOGLE_CLIENT_ID;
+const PICKER_READY = DRIVE_READY && !!CFG.GOOGLE_API_KEY && !!CFG.GOOGLE_APP_ID;
+const SCOPE = 'https://www.googleapis.com/auth/drive.file';
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-5);
+const today = () => { const d = new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
+const CUR = {INR:'₹', USD:'$', EUR:'€', GBP:'£', AED:'AED ', SGD:'S$', THB:'฿'};
+const HUES = ['--h1','--h2','--h3','--h4','--h5','--h6'];
+const hue = s => { let h = 0; for (const c of String(s)) h = (h*31 + c.charCodeAt(0)) >>> 0; return `var(${HUES[h % HUES.length]})`; };
+const initials = n => String(n||'?').trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase();
+const CATS = [
+  ['food','Food','F','--h3'],['groceries','Groceries','G','--h2'],['travel','Travel','T','--h5'],['stay','Stay','S','--h1'],
+  ['fuel','Fuel','P','--h4'],['rent','Rent','R','--h6'],['bills','Bills','B','--h5'],['shopping','Shopping','Sh','--h6'],
+  ['fun','Fun','E','--h3'],['other','Other','O','--h1']];
+const catOf = k => CATS.find(c => c[0]===k) || CATS[CATS.length-1];
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function fmt(p, cur='INR', signed=false){
+  const s = CUR[cur] ?? '₹'; const v = Math.abs(p)/100;
+  const str = v.toLocaleString(cur==='INR'?'en-IN':'en-US', {minimumFractionDigits: Number.isInteger(v)?0:2, maximumFractionDigits:2});
+  return (signed && p<0 ? '−' : signed && p>0 ? '+' : '') + s + str;
+}
+const toPaise = v => { const n = parseFloat(String(v).replace(/,/g,'')); return isFinite(n) ? Math.round(n*100) : NaN; };
+const ls = { get(k){ try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } }, set(k,v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
+const ago = t => { if (!t) return 'never'; const s = (Date.now()-t)/1000; if (s<60) return 'just now'; if (s<3600) return Math.floor(s/60)+' min ago'; if (s<86400) return Math.floor(s/3600)+' h ago'; return new Date(t).toLocaleDateString('en-IN',{day:'numeric',month:'short'}); };
+
+/* ================= Local storage on the phone (IndexedDB) ================= */
+const IDB = {
+  db: null,
+  open(){ return new Promise((res, rej) => {
+    const r = indexedDB.open('hisaab', 1);
+    r.onupgradeneeded = () => { const d = r.result;
+      ['groups','expenses'].forEach(s => d.objectStoreNames.contains(s) || d.createObjectStore(s, {keyPath:'id'}));
+      d.objectStoreNames.contains('meta') || d.createObjectStore('meta'); };
+    r.onsuccess = () => { IDB.db = r.result; res(); };
+    r.onerror = () => rej(r.error);
+  }); },
+  tx(store, mode, fn){ return new Promise((res, rej) => { if (!IDB.db) return res(null); const t = IDB.db.transaction(store, mode); const out = fn(t.objectStore(store)); t.oncomplete = () => res(out && out.result); t.onerror = () => rej(t.error); }); },
+  all(store){ return IDB.tx(store, 'readonly', s => s.getAll()); },
+  get(store, key){ return IDB.tx(store, 'readonly', s => s.get(key)); },
+  put(store, val, key){ return IDB.tx(store, 'readwrite', s => key===undefined ? s.put(val) : s.put(val, key)); },
+  putMany(store, vals){ return IDB.tx(store, 'readwrite', s => { vals.forEach(v => s.put(v)); }); },
+  del(store, key){ return IDB.tx(store, 'readwrite', s => s.delete(key)); },
+  delMany(store, keys){ return IDB.tx(store, 'readwrite', s => { keys.forEach(k => s.delete(k)); }); }
+};
+
+// S.meta (this phone only): { files: {gid: {fileId, lastSync, broken}}, hidden: [fileId], everSigned }
+const S = { ready:false, groups:{}, expenses:{}, meta:{files:{}, hidden:[]}, storageOk:true };
+const saveMeta = () => IDB.put('meta', S.meta, 'sync').catch(()=>{});
+
+async function loadAll(){
+  try {
+    await IDB.open();
+    const [gs, es, m] = await Promise.all([IDB.all('groups'), IDB.all('expenses'), IDB.get('meta','sync')]);
+    (gs||[]).forEach(g => S.groups[g.id] = g); (es||[]).forEach(e => S.expenses[e.id] = e);
+    if (m) S.meta = Object.assign({files:{}, hidden:[]}, m);
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(()=>{});
+  } catch { S.storageOk = false; toast('This browser is blocking storage. Changes will be lost when you close it.'); }
+  S.ready = true; render(); setChip();
+}
+
+async function writeDoc(col, obj){
+  if (isRO(col==='groups' ? obj.id : obj.groupId)) { toast('This trip is view only. Only the owner can change it.'); return; }
+  obj.updatedAt = Date.now();
+  (col==='groups' ? S.groups : S.expenses)[obj.id] = obj;
+  render();
+  try { await IDB.put(col, obj); } catch { toast('Couldn’t save on this phone. Is storage full?'); }
+  const gid = col==='groups' ? obj.id : obj.groupId;
+  Sync.schedule(gid);
+}
+
+/* ================= Money math (all amounts in paise / cents) ================= */
+const live = e => !e.deleted;
+const isRO = gid => !!((S.meta.files||{})[gid]||{}).readOnly;
+const groupExp = gid => Object.values(S.expenses).filter(e => e.groupId===gid && live(e)).sort((a,b) => (b.date||'').localeCompare(a.date||'') || (b.createdAt||0)-(a.createdAt||0));
+function nets(g, exps){
+  const n = {}; g.members.forEach(m => n[m.id] = 0);
+  exps.forEach(e => { n[e.paidBy] = (n[e.paidBy]||0) + e.amount; for (const [m,v] of Object.entries(e.shares||{})) n[m] = (n[m]||0) - v; });
+  return n;
+}
+function simplify(net){
+  const cr = [], db = [];
+  for (const [m,v] of Object.entries(net)) { if (v>0) cr.push([m,v]); else if (v<0) db.push([m,-v]); }
+  cr.sort((a,b)=>b[1]-a[1]); db.sort((a,b)=>b[1]-a[1]);
+  const out = []; let i=0, j=0;
+  while (i<db.length && j<cr.length) { const x = Math.min(db[i][1], cr[j][1]); if (x>0) out.push({from:db[i][0], to:cr[j][0], amt:x}); db[i][1]-=x; cr[j][1]-=x; if (!db[i][1]) i++; if (!cr[j][1]) j++; }
+  return out;
+}
+function pairwise(exps){
+  const o = {}; const add = (a,b,v) => { o[a] = o[a]||{}; o[a][b] = (o[a][b]||0)+v; };
+  exps.forEach(e => { for (const [m,v] of Object.entries(e.shares||{})) if (m!==e.paidBy) add(m, e.paidBy, v); });
+  const out = []; const arr = [...new Set([...Object.keys(o), ...Object.values(o).flatMap(Object.keys)])];
+  for (let i=0;i<arr.length;i++) for (let j=i+1;j<arr.length;j++){ const a=arr[i], b=arr[j]; const d = ((o[a]||{})[b]||0) - ((o[b]||{})[a]||0); if (d>0) out.push({from:a,to:b,amt:d}); else if (d<0) out.push({from:b,to:a,amt:-d}); }
+  return out.sort((x,y)=>y.amt-x.amt);
+}
+function splitEven(total, ids){ const n = ids.length, base = Math.floor(total/n); let r = total - base*n; const s = {}; ids.forEach(id => { s[id] = base + (r>0?1:0); if (r>0) r--; }); return s; }
+function splitWeighted(total, weights){
+  const ids = Object.keys(weights).filter(k => weights[k]>0); const W = ids.reduce((a,k)=>a+weights[k],0); const s = {};
+  if (!W) return s; let used = 0; const fr = [];
+  ids.forEach(k => { const exact = total*weights[k]/W; s[k] = Math.floor(exact); used += s[k]; fr.push([k, exact - s[k]]); });
+  fr.sort((a,b)=>b[1]-a[1]); let r = total-used; for (let i=0; r>0; i=(i+1)%fr.length, r--) s[fr[i][0]]++;
+  return s;
+}
+function computeShares(d, members){
+  const total = toPaise(d.amount);
+  if (!(total>0)) return {ok:false, msg:'Enter the total amount', shares:{}};
+  const ids = members.map(m=>m.id);
+  if (d.mode==='equal') { const sel = ids.filter(i => d.sel[i]); if (!sel.length) return {ok:false,msg:'Pick at least one person',shares:{}}; return {ok:true, shares:splitEven(total, sel), msg:`${fmt(Math.floor(total/sel.length), d.cur)} each · ${sel.length} ${sel.length===1?'person':'people'}`}; }
+  if (d.mode==='exact') {
+    const s = {}; let sum = 0; for (const i of ids) { const v = d.vals[i]; if (v===''||v==null) continue; const p = toPaise(v); if (isNaN(p)||p<0) return {ok:false,msg:'Amounts must be numbers',shares:{}}; if (p>0){ s[i]=p; sum+=p; } }
+    const left = total - sum; if (left===0) return {ok:true, shares:s, msg:'Adds up to the total'};
+    return {ok:false, shares:s, msg: left>0 ? `${fmt(left,d.cur)} still to assign` : `${fmt(-left,d.cur)} over the total`};
+  }
+  if (d.mode==='percent') {
+    const w = {}; let sum = 0; for (const i of ids) { const v = parseFloat(d.vals[i]); if (v>0){ w[i]=v; sum+=v; } }
+    if (Math.abs(sum-100) > 0.001) return {ok:false, shares:splitWeighted(total,w), msg: sum<100 ? `${+(100-sum).toFixed(2)}% still to assign` : `${+(sum-100).toFixed(2)}% over 100%`};
+    return {ok:true, shares:splitWeighted(total,w), msg:'Adds up to 100%'};
+  }
+  const w = {}; for (const i of ids) { const v = parseFloat(d.vals[i]); if (v>0) w[i]=v; }
+  if (!Object.keys(w).length) return {ok:false, shares:{}, msg:'Give at least one person a share'};
+  const tot = Object.values(w).reduce((a,b)=>a+b,0);
+  return {ok:true, shares:splitWeighted(total,w), msg:`${+tot.toFixed(2)} shares total`};
+}
+
+/* ================= Google Drive sync ================= */
+// Each group is one JSON file in Drive. Every record carries updatedAt; when two phones
+// changed things, the newer version of each record wins, and deletes are kept as markers.
+const Sync = {
+  token: null, exp: 0, client: null, state: DRIVE_READY ? 'off' : 'na', busy: false, again: false, timer: null, err: '',
+  hasToken(){ return this.token && Date.now() < this.exp - 60000; },
+  restore(){ const t = ls.get('hisaab-token'); if (t && t.exp > Date.now()+60000) { this.token = t.token; this.exp = t.exp; this.state = 'ok'; } else if (S.meta.everSigned) this.state = 'expired'; },
+  loadScript(src){ return new Promise((res, rej) => { if (document.querySelector(`script[src="${src}"]`)) return res(); const s = document.createElement('script'); s.src = src; s.async = true; s.onload = res; s.onerror = () => rej(new Error('load')); document.head.appendChild(s); }); },
+  async ensureClient(){
+    if (this.client) return;
+    await this.loadScript('https://accounts.google.com/gsi/client');
+    this.client = google.accounts.oauth2.initTokenClient({ client_id: CFG.GOOGLE_CLIENT_ID, scope: SCOPE, callback: () => {} });
+  },
+  // Must be called from a tap (Google opens a small sign-in window).
+  async connect(silent){
+    if (!DRIVE_READY) return false;
+    if (!navigator.onLine) { toast('You’re offline. Connect to the internet to sign in.'); return false; }
+    try { await this.ensureClient(); } catch { toast('Couldn’t reach Google. Check your connection.'); return false; }
+    return new Promise(res => {
+      this.client.callback = r => {
+        if (r && r.access_token) {
+          this.token = r.access_token; this.exp = Date.now() + (r.expires_in||3600)*1000;
+          ls.set('hisaab-token', {token:this.token, exp:this.exp});
+          S.meta.everSigned = true; saveMeta(); this.state = 'ok'; setChip(); res(true); this.syncAll(true);
+        } else { setChip(); res(false); }
+      };
+      this.client.error_callback = () => { setChip(); res(false); };
+      this.client.requestAccessToken({ prompt: (silent || S.meta.everSigned) ? '' : 'consent' });
+    });
+  },
+  disconnect(){
+    if (this.token && window.google && google.accounts) try { google.accounts.oauth2.revoke(this.token, ()=>{}); } catch {}
+    this.token = null; this.exp = 0; ls.set('hisaab-token', null); S.meta.everSigned = false; saveMeta(); this.state = 'off'; setChip(); render();
+  },
+  async api(url, opts={}){
+    if (!this.hasToken()) { this.state = 'expired'; setChip(); throw Object.assign(new Error('token'), {code:'token'}); }
+    const r = await fetch(url, {...opts, headers: {...(opts.headers||{}), Authorization: 'Bearer ' + this.token}});
+    if (r.status === 401) { this.token = null; ls.set('hisaab-token', null); this.state = 'expired'; setChip(); throw Object.assign(new Error('token'), {code:'token'}); }
+    if (!r.ok) throw Object.assign(new Error('http '+r.status), {code: r.status});
+    return r;
+  },
+  payload(gid){
+    return { app:'hisaab', v:1, savedAt: Date.now(), group: S.groups[gid], expenses: Object.fromEntries(Object.values(S.expenses).filter(e => e.groupId===gid).map(e => [e.id, e])) };
+  },
+  multipart(meta, data){
+    const b = 'hisaab' + Math.random().toString(36).slice(2);
+    return { body: `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(data)}\r\n--${b}--`, type: `multipart/related; boundary=${b}` };
+  },
+  fileName: g => `Split Money - ${g.name}.json`,
+  async merge(gid, remote){
+    let changed = false, needUp = false; const putG = [], putE = [];
+    const rg = remote.group, lg = S.groups[gid];
+    if (rg && rg.id===gid) {
+      if (!lg) { S.groups[gid] = rg; putG.push(rg); changed = true; }
+      else {
+        // Newer group wins for name and currency; people are merged so nobody added on another phone is lost.
+        const win = (rg.updatedAt||0) > (lg.updatedAt||0) ? rg : lg, lose = win===rg ? lg : rg;
+        const removed = [...new Set([...(rg.removed||[]), ...(lg.removed||[])])];
+        const members = [...win.members];
+        lose.members.forEach(m => { if (!members.some(x => x.id===m.id)) members.push(m); });
+        const merged = {...win, removed, members: members.filter(m => !removed.includes(m.id))};
+        const sig = g => JSON.stringify([g.name, g.currency, g.members, g.removed||[]]);
+        if (sig(merged) !== sig(lg)) { merged.updatedAt = Math.max(rg.updatedAt||0, lg.updatedAt||0); S.groups[gid] = merged; putG.push(merged); changed = true; }
+        if (sig(merged) !== sig(rg)) needUp = true;
+      }
+    }
+    const rex = remote.expenses || {};
+    for (const [id, re] of Object.entries(rex)) {
+      if (!re || re.groupId!==gid) continue;
+      const le = S.expenses[id];
+      if (!le || (re.updatedAt||0) > (le.updatedAt||0)) { S.expenses[id] = re; putE.push(re); changed = true; }
+    }
+    for (const le of Object.values(S.expenses)) if (le.groupId===gid) { const re = rex[le.id]; if (!re || (le.updatedAt||0) > (re.updatedAt||0)) needUp = true; }
+    if (putG.length) await IDB.putMany('groups', putG).catch(()=>{});
+    if (putE.length) await IDB.putMany('expenses', putE).catch(()=>{});
+    return {changed, needUp};
+  },
+  async syncGroup(gid){
+    const g = S.groups[gid]; if (!g || g.example) return;
+    const f = S.meta.files[gid] || (S.meta.files[gid] = {});
+    if (f.broken) return;
+    const base = 'https://www.googleapis.com/drive/v3/files', up = 'https://www.googleapis.com/upload/drive/v3/files';
+    if (!f.fileId) {
+      const mp = this.multipart({ name: this.fileName(g), mimeType:'application/json', appProperties:{hisaab:'1', gid} }, this.payload(gid));
+      const r = await this.api(`${up}?uploadType=multipart&fields=id,version`, {method:'POST', headers:{'Content-Type':mp.type}, body:mp.body});
+      const j = await r.json(); f.fileId = j.id; f.lastSync = Date.now(); await saveMeta(); return;
+    }
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let meta;
+      try { meta = await (await this.api(`${base}/${f.fileId}?fields=version,trashed,name,capabilities(canEdit)&supportsAllDrives=true`)).json(); }
+      catch (e) { if (e.code===404 || e.code===403) { f.broken = true; await saveMeta(); render(); return; } throw e; }
+      if (meta.trashed) { f.broken = true; await saveMeta(); render(); return; }
+      const ro = !!(meta.capabilities && meta.capabilities.canEdit === false);
+      if (ro !== !!f.readOnly) { f.readOnly = ro; await saveMeta(); render(); }
+      const remote = await (await this.api(`${base}/${f.fileId}?alt=media&supportsAllDrives=true`)).json().catch(() => ({}));
+      const {changed, needUp} = await this.merge(gid, remote);
+      if (changed) render();
+      const nameOff = meta.name !== this.fileName(S.groups[gid]);
+      if (f.readOnly || (!needUp && !nameOff)) { f.lastSync = Date.now(); await saveMeta(); return; }
+      const again = await (await this.api(`${base}/${f.fileId}?fields=version&supportsAllDrives=true`)).json();
+      if (again.version !== meta.version) continue; // someone saved in between: merge again
+      const mp = this.multipart({ name: this.fileName(S.groups[gid]) }, this.payload(gid));
+      await this.api(`${up}/${f.fileId}?uploadType=multipart&supportsAllDrives=true&fields=id`, {method:'PATCH', headers:{'Content-Type':mp.type}, body:mp.body});
+      f.lastSync = Date.now(); await saveMeta(); return;
+    }
+  },
+  async discover(){
+    const q = encodeURIComponent("appProperties has { key='hisaab' and value='1' } and trashed=false");
+    const j = await (await this.api(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,appProperties)&pageSize=100&supportsAllDrives=true&includeItemsFromAllDrives=true`)).json();
+    const known = new Set(Object.values(S.meta.files).map(f => f.fileId));
+    let added = 0;
+    for (const file of (j.files||[])) {
+      if (known.has(file.id) || S.meta.hidden.includes(file.id)) continue;
+      if (await this.importFile(file.id, true)) added++;
+    }
+    return added;
+  },
+  async importFile(fileId, quiet){
+    const remote = await (await this.api(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`)).json().catch(() => null);
+    if (!remote || remote.app!=='hisaab' || !remote.group || !remote.group.id) { if (!quiet) toast('That file isn’t a Split Money ledger.'); return null; }
+    const gid = remote.group.id;
+    const cap = await (await this.api(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=capabilities(canEdit)&supportsAllDrives=true`)).json().catch(() => ({}));
+    S.meta.files[gid] = {fileId, lastSync: Date.now(), readOnly: !!(cap.capabilities && cap.capabilities.canEdit === false)};
+    S.meta.hidden = S.meta.hidden.filter(x => x !== fileId);
+    await this.merge(gid, remote); await saveMeta(); render();
+    return gid;
+  },
+  schedule(gid){
+    if (!DRIVE_READY) return;
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.syncAll(false), 2500);
+  },
+  async syncAll(withDiscover){
+    if (!DRIVE_READY || !navigator.onLine || !this.hasToken()) { setChip(); return; }
+    if (this.busy) { this.again = true; return; }
+    this.busy = true; this.state = 'busy'; setChip();
+    try {
+      if (withDiscover) { const n = await this.discover(); if (n) toast(`Found ${n} ledger${n>1?'s':''} in your Drive`); }
+      for (const gid of Object.keys(S.groups)) await this.syncGroup(gid);
+      this.state = 'ok'; this.err = ''; S.meta.lastSync = Date.now(); saveMeta();
+    } catch (e) {
+      if (e.code !== 'token') { this.state = 'error'; this.err = navigator.onLine ? 'Drive didn’t respond' : 'Offline'; }
+    }
+    this.busy = false; setChip(); render();
+    if (this.again) { this.again = false; this.syncAll(false); }
+  },
+  async pick(){
+    if (!PICKER_READY) { toast('The shared-ledger picker needs the API key and project number in config.js.'); return; }
+    if (!this.hasToken() && !(await this.connect())) return;
+    try {
+      await this.loadScript('https://apis.google.com/js/api.js');
+      await new Promise(r => gapi.load('picker', r));
+    } catch { toast('Couldn’t load the Google file picker.'); return; }
+    const shared = new google.picker.DocsView(google.picker.ViewId.DOCS).setMimeTypes('application/json').setOwnedByMe(false).setMode(google.picker.DocsViewMode.LIST);
+    const all = new google.picker.DocsView(google.picker.ViewId.DOCS).setMimeTypes('application/json').setQuery('Split Money').setMode(google.picker.DocsViewMode.LIST);
+    const picker = new google.picker.PickerBuilder()
+      .addView(shared).addView(all).setOAuthToken(this.token).setDeveloperKey(CFG.GOOGLE_API_KEY).setAppId(CFG.GOOGLE_APP_ID)
+      .setTitle('Pick a Split Money ledger').setCallback(async data => {
+        if (data.action !== google.picker.Action.PICKED) return;
+        try { const gid = await this.importFile(data.docs[0].id); if (gid) { closeSheet(); V.name='group'; V.gid=gid; V.tab='expenses'; render(); toast('Ledger opened. It will stay in sync.'); } }
+        catch { toast('Couldn’t open that file. Ask the owner to share it with you as Editor.'); }
+      }).build();
+    picker.setVisible(true);
+  }
+};
+
+function setChip(){
+  const el = $('#sync'); const t = el.lastElementChild; let cls = '', txt = '';
+  if (!S.ready) { txt = 'Starting…'; }
+  else if (!navigator.onLine) { cls = 'warn'; txt = 'Offline · saved on phone'; }
+  else if (Sync.state==='na') { txt = 'On this phone'; }
+  else if (Sync.state==='off') { txt = 'Connect Drive'; }
+  else if (Sync.state==='expired') { cls = 'warn'; txt = 'Tap to resume sync'; }
+  else if (Sync.state==='busy') { cls = 'busy'; txt = 'Syncing…'; }
+  else if (Sync.state==='error') { cls = 'err'; txt = 'Sync failed · retry'; }
+  else { cls = 'ok'; txt = 'Synced ' + ago(S.meta.lastSync); }
+  el.className = 'chip ' + cls; t.textContent = txt;
+}
+
+/* ================= View ================= */
+const V = { name:'home', gid:null, tab:'expenses', simplify: ls.get('hisaab-simplify') !== false };
+const meOf = gid => ls.get('hisaab-me-'+gid);
+const nameOf = (g, id) => (g.members.find(m=>m.id===id)||{}).name || 'Former member';
+const av = (name, id) => `<span class="av" style="--av:${hue(id||name)}" aria-hidden="true">${esc(initials(name))}</span>`;
+
+function render(){
+  const v = $('#view');
+  if (!S.ready) { v.innerHTML = `<div class="empty"><p>Opening your ledger…</p></div>`; $('#fab').hidden = true; return; }
+  if (V.name==='group' && !S.groups[V.gid]) V.name = 'home';
+  const y = window.scrollY;
+  if (V.name==='home') renderHome(v); else renderGroup(v, S.groups[V.gid]);
+  window.scrollTo(0, y);
+  $('#fab').hidden = V.name!=='group' || isRO(V.gid);
+  if (SH && SH.type==='settings') drawSheet();
+}
+
+function renderHome(v){
+  const gs = Object.values(S.groups).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const driveBtn = DRIVE_READY ? (PICKER_READY ? `<button class="btn" data-act="pick">Open a shared ledger</button>` : '') : '';
+  if (!gs.length) {
+    v.innerHTML = `<div class="stack" style="gap:18px">
+      <div><div class="eyebrow">Shared expenses</div><h1 style="margin-top:4px">Who paid, who owes, and the fewest payments to settle it.</h1></div>
+      <div class="empty">
+        <h2>No groups yet</h2>
+        <p>Make a group for a trip, your flat or a dinner. Add who's in it, log expenses as they happen, and Split Money works out the balances. Everything works without internet.</p>
+        <div class="row" style="flex-wrap:wrap;justify-content:center">
+          <button class="btn primary" data-act="new-group">Create a group</button>${driveBtn}<button class="btn" data-act="example">Try an example</button>
+        </div>
+        ${DRIVE_READY && Sync.state==='off' ? `<p class="note">Used Split Money on another phone? <button class="btn sm" data-act="connect">Connect Google Drive</button> to bring your ledgers back.</p>` : ''}
+      </div></div>`;
+    return;
+  }
+  let owed = 0, owe = 0, anyMe = false;
+  const cards = gs.map(g => {
+    const ex = groupExp(g.id), n = nets(g, ex), me = meOf(g.id);
+    const spent = ex.filter(e=>e.kind!=='payment').reduce((a,e)=>a+e.amount,0);
+    let bal;
+    if (me && n[me]!==undefined) { anyMe = true; const x = n[me]; if (x>0) owed += x; if (x<0) owe -= x;
+      bal = x===0 ? `<div class="lbl muted">settled up</div>` : `<div class="lbl ${x>0?'pos':'neg'}">${x>0?'you are owed':'you owe'}</div><div class="v ${x>0?'pos':'neg'}">${fmt(x,g.currency)}</div>`;
+    } else { const open = Object.values(n).filter(x=>x>0).reduce((a,b)=>a+b,0); bal = open ? `<div class="lbl muted">unsettled</div><div class="v">${fmt(open,g.currency)}</div>` : `<div class="lbl muted">settled up</div>`; }
+    const f = S.meta.files[g.id];
+    const tag = g.example ? ' <span class="tag">example</span>' : isRO(g.id) ? ' <span class="tag">view only</span>' : (DRIVE_READY && f && f.fileId && !f.broken) ? ' <span class="tag">Drive</span>' : '';
+    return `<button class="gcard" data-act="open" data-id="${g.id}">
+      <span class="gtile" style="--av:${hue(g.id)}">${esc(initials(g.name))}</span>
+      <span class="meta"><div class="name">${esc(g.name)}${tag}</div><div class="muted" style="font-size:13px">${g.members.length} people · <span class="num">${fmt(spent,g.currency)}</span> spent</div></span>
+      <span class="bal">${bal}</span></button>`;
+  }).join('');
+  v.innerHTML = `<div class="stack" style="gap:16px">
+    ${anyMe ? `<div class="hero-bal"><div><div class="eyebrow">You are owed</div><div class="v">${fmt(owed)}</div></div><div><div class="eyebrow">You owe</div><div class="v">${fmt(owe)}</div></div><div><div class="eyebrow">Net</div><div class="v">${fmt(owed-owe,'INR',true)}</div></div></div>` : ''}
+    <div class="row" style="flex-wrap:wrap"><h2>Groups</h2><span class="spacer"></span>${PICKER_READY?`<button class="btn sm" data-act="pick">Open shared</button>`:''}<button class="btn sm" data-act="new-group">+ New group</button></div>
+    <div class="glist">${cards}</div>
+    <p class="note">${anyMe ? 'Totals across groups assume ₹. Pick who you are inside each group to include it.' : 'Open a group and choose “Viewing as” to see what you owe or are owed.'}</p>
+  </div>`;
+}
+
+function renderGroup(v, g){
+  const ex = groupExp(g.id), n = nets(g, ex);
+  let me = meOf(g.id); if (me && !g.members.some(m=>m.id===me)) me = null;
+  const cur = g.currency, f = S.meta.files[g.id] || {};
+  let sum = '';
+  if (me) {
+    const x = n[me]||0, debts = (V.simplify ? simplify(n) : pairwise(ex)).filter(d => d.from===me || d.to===me);
+    const lines = debts.map(d => d.from===me ? `You owe ${esc(nameOf(g,d.to))} <b class="num">${fmt(d.amt,cur)}</b>` : `${esc(nameOf(g,d.from))} owes you <b class="num">${fmt(d.amt,cur)}</b>`).join(' · ');
+    sum = `<div class="summary ${x>0?'pos':x<0?'neg':'even'}"><div><div class="eyebrow">${x>0?'You are owed':x<0?'You owe':'All square'}</div><div class="big ${x>0?'pos':x<0?'neg':''}">${x?fmt(x,cur):'Settled up'}</div></div>${lines?`<div class="lines">${lines}</div>`:''}</div>`;
+  }
+  const ro = isRO(g.id);
+  const banner = ro ? `<div class="banner"><span>View only. The owner adds and edits expenses; you see their changes when you’re online.</span></div>` : f.broken ? `<div class="banner"><span>Lost access to this group’s Drive file. It may have been deleted or unshared. Ask the owner to share it again, or save your copy as a new file.</span><button class="btn sm" data-act="reupload">Save as new file</button></div>` : '';
+  const tab = V.tab;
+  v.innerHTML = `<div class="stack" style="gap:16px">
+    <div class="ghead">
+      <button class="icon-btn" data-act="home" aria-label="Back to groups">←</button>
+      <div class="t"><h1>${esc(g.name)}</h1>
+        <div class="row" style="margin-top:8px;flex-wrap:wrap"><span class="avs">${g.members.slice(0,6).map(m=>av(m.name,m.id)).join('')}</span>
+        <label class="viewas" for="viewas">Viewing as <select id="viewas"><option value="">Everyone</option>${g.members.map(m=>`<option value="${m.id}" ${m.id===me?'selected':''}>${esc(m.name)}</option>`).join('')}</select></label></div>
+      </div>
+      <button class="btn sm" data-act="edit-group">${ro?'Options':'Edit'}</button>
+    </div>
+    ${banner}${sum}
+    <div class="tabs" role="tablist">${[['expenses','Expenses'],['balances','Balances'],['insights','Insights']].map(([k,l])=>`<button role="tab" aria-selected="${tab===k}" data-act="tab" data-tab="${k}">${l}</button>`).join('')}</div>
+    <div>${tab==='expenses'?tabExpenses(g,ex,me):tab==='balances'?tabBalances(g,ex,n,me):tabInsights(g,ex)}</div>
+  </div>`;
+}
+
+function tabExpenses(g, ex, me){
+  if (!ex.length) return `<div class="empty"><h2>Nothing logged yet</h2><p>Tap “Add expense” to record the first bill. Split it equally, by exact amounts, by percentage or by shares.</p></div>`;
+  const cur = g.currency; let out = '', month = '', buf = '';
+  const flush = () => { if (buf) out += `<div class="month">${month}</div><div class="ledger">${buf}</div>`; buf = ''; };
+  ex.forEach(e => {
+    const [y,m,d] = (e.date||today()).split('-'); const mk = `${MONTHS[+m-1]} ${y}`;
+    if (mk!==month) { flush(); month = mk; }
+    if (e.kind==='payment') {
+      const to = Object.keys(e.shares)[0];
+      const r = me===e.paidBy ? `<span class="pos">you paid</span>` : me===to ? `<span class="neg">you received</span>` : `<span class="muted">${esc(e.via||'')}</span>`;
+      buf += `<button class="erow pay" data-act="edit-exp" data-id="${e.id}"><div class="date"><b>${+d}</b><span>${MONTHS[+m-1]}</span></div><span class="cat">${esc((CUR[cur]||'₹').trim())}</span><div class="mid"><div class="d">${esc(nameOf(g,e.paidBy))} paid ${esc(nameOf(g,to))}</div><div class="s">Settlement</div></div><div class="r"><span class="num">${fmt(e.amount,cur)}</span>${r}</div></button>`;
+      return;
+    }
+    const c = catOf(e.category); let r;
+    if (me) { const mine = e.shares[me]||0;
+      if (e.paidBy===me) { const lent = e.amount - mine; r = lent ? `<span class="pos">you lent</span><span class="num pos">${fmt(lent,cur)}</span>` : `<span class="muted">just you</span>`; }
+      else if (mine) r = `<span class="neg">you borrowed</span><span class="num neg">${fmt(mine,cur)}</span>`;
+      else r = `<span class="muted">not involved</span>`;
+    } else r = `<span class="num">${fmt(e.amount,cur)}</span><span class="muted">${Object.keys(e.shares).length} people</span>`;
+    buf += `<button class="erow" data-act="edit-exp" data-id="${e.id}"><div class="date"><b>${+d}</b><span>${MONTHS[+m-1]}</span></div><span class="cat" style="--av:var(${c[3]})">${c[2]}</span><div class="mid"><div class="d">${esc(e.desc)}</div><div class="s">${esc(nameOf(g,e.paidBy))} paid <span class="num">${fmt(e.amount,cur)}</span></div></div><div class="r">${r}</div></button>`;
+  });
+  flush(); return out;
+}
+
+function tabBalances(g, ex, n, me){
+  const cur = g.currency; const max = Math.max(1, ...Object.values(n).map(Math.abs));
+  const bars = g.members.map(m => { const x = n[m.id]||0, w = Math.abs(x)/max*50;
+    return `<div class="brow"><div class="nm">${av(m.name,m.id)}<span>${esc(m.name)}${m.id===me?' (you)':''}</span></div>
+      <div class="dbar" aria-hidden="true">${x?`<i style="${x>0?`left:50%;width:${w}%;background:var(--pos)`:`right:50%;width:${w}%;background:var(--neg)`}"></i>`:''}</div>
+      <div class="v ${x>0?'pos':x<0?'neg':'muted'}">${x>0?'gets back ':x<0?'owes ':''}${x?fmt(x,cur):'settled'}</div></div>`; }).join('');
+  const debts = V.simplify ? simplify(n) : pairwise(ex);
+  const dl = debts.length ? debts.map(d => `<div class="debt"><div class="who">${av(nameOf(g,d.from),d.from)}<b>${esc(nameOf(g,d.from))}${d.from===me?' (you)':''}</b><span class="arrow">pays →</span>${av(nameOf(g,d.to),d.to)}<b>${esc(nameOf(g,d.to))}${d.to===me?' (you)':''}</b></div><span class="num" style="font-weight:600">${fmt(d.amt,cur)}</span>${isRO(g.id)?'':`<button class="btn sm" data-act="settle" data-from="${d.from}" data-to="${d.to}" data-amt="${d.amt}">Record payment</button>`}</div>`).join('')
+    : `<p class="muted" style="margin:6px 0">Everyone is settled up.</p>`;
+  return `<div class="stack">
+    <div class="card"><h2 style="margin-bottom:6px">Net balances</h2>${bars}</div>
+    <div class="card"><div class="row" style="flex-wrap:wrap;gap:8px;margin-bottom:4px"><h2>Settle up</h2><span class="spacer"></span>
+      <label class="switch" for="simp"><input type="checkbox" id="simp" ${V.simplify?'checked':''}> Simplify debts</label></div>
+      <p class="note" style="margin:0 0 6px">${V.simplify?`Fewest payments to clear every balance: ${debts.length}.`:'Who owes whom, pair by pair, without netting through others.'}</p>
+      ${dl}
+      <div class="row" style="flex-wrap:wrap;margin-top:12px">${isRO(g.id)?'':'<button class="btn sm" data-act="settle">+ Record a payment</button>'}<button class="btn sm" data-act="share-summary">${navigator.share?'Share summary':'Copy summary'}</button><button class="btn sm" data-act="csv">Export CSV</button></div>
+    </div></div>`;
+}
+
+function tabInsights(g, ex){
+  const cur = g.currency, real = ex.filter(e=>e.kind!=='payment');
+  if (!real.length) return `<div class="empty"><p>Spending charts appear once you log an expense.</p></div>`;
+  const total = real.reduce((a,e)=>a+e.amount,0);
+  const days = new Set(real.map(e=>e.date)).size;
+  const byCat = {}; real.forEach(e => byCat[e.category] = (byCat[e.category]||0)+e.amount);
+  const cats = Object.entries(byCat).sort((a,b)=>b[1]-a[1]); const cmax = cats[0][1];
+  const paid = {}, used = {};
+  real.forEach(e => { paid[e.paidBy] = (paid[e.paidBy]||0)+e.amount; for (const [m,v] of Object.entries(e.shares)) used[m]=(used[m]||0)+v; });
+  return `<div class="stack">
+    <div class="kpis"><div class="kpi"><div class="eyebrow">Total spent</div><div class="v">${fmt(total,cur)}</div></div>
+      <div class="kpi"><div class="eyebrow">Expenses</div><div class="v">${real.length}</div></div>
+      <div class="kpi"><div class="eyebrow">Per person</div><div class="v">${fmt(Math.round(total/Math.max(1,g.members.length)),cur)}</div></div></div>
+    <div class="card"><h2 style="margin-bottom:6px">By category</h2>${cats.map(([k,val]) => { const c = catOf(k); return `<div class="hbar"><span>${c[1]}</span><span class="track"><i style="--av:var(${c[3]});width:${(val/cmax*100).toFixed(1)}%"></i></span><span class="num">${fmt(val,cur)} <span class="muted">${Math.round(val/total*100)}%</span></span></div>`; }).join('')}</div>
+    <div class="card"><h2 style="margin-bottom:6px">Paid vs. used</h2><div class="scroll"><table class="tbl"><thead><tr><th>Person</th><th>Paid</th><th>Their share</th></tr></thead><tbody>
+      ${g.members.map(m=>`<tr><td><span class="row" style="gap:8px">${av(m.name,m.id)}${esc(m.name)}</span></td><td class="num">${fmt(paid[m.id]||0,cur)}</td><td class="num">${fmt(used[m.id]||0,cur)}</td></tr>`).join('')}
+    </tbody></table></div><p class="note" style="margin:8px 0 0">Across ${days} ${days===1?'day':'days'}. Settlements are not counted as spending.</p></div>
+  </div>`;
+}
+
+/* ================= Sheets ================= */
+let SH = null;
+function openSheet(state){ SH = state; drawSheet(); $('#overlay').hidden = false; setTimeout(() => { const f = $('#sheet [data-autofocus]'); if (f && matchMedia('(min-width:640px)').matches) f.focus(); }, 60); }
+function closeSheet(){ SH = null; $('#overlay').hidden = true; $('#sheet').innerHTML = ''; }
+function drawSheet(){
+  const html = SH.type==='group'?sheetGroup():SH.type==='expense'?sheetExpense():SH.type==='payment'?sheetPayment():SH.type==='settings'?sheetSettings():SH.html;
+  $('#sheet').innerHTML = '<div class="grab"></div>' + html;
+}
+
+function sheetSettings(){
+  const nG = Object.keys(S.groups).length, nE = Object.values(S.expenses).filter(live).length;
+  let drive;
+  if (!DRIVE_READY) drive = `<p>Drive sync isn’t set up yet, so data stays on this phone only. Add your Google client ID to <b>config.js</b> (see README) to sync and share with friends.</p>`;
+  else if (Sync.state==='off') drive = `<p>Sync your groups to your own Google Drive to back them up and share them with friends. Split Money can only see files it creates or that you open in it.</p><div class="btns"><button class="btn primary" data-act="connect">Connect Google Drive</button></div>`;
+  else if (Sync.state==='expired') drive = `<p>Google sign-ins last an hour. Tap to resume syncing; you usually won’t need to type a password.</p><div class="btns"><button class="btn primary" data-act="connect">Resume sync</button><button class="btn ghost" data-act="disconnect">Disconnect</button></div>`;
+  else drive = `<p>${Sync.state==='error' ? esc(Sync.err)+'. Your changes are safe on this phone and will sync later.' : 'Connected. Last synced ' + ago(S.meta.lastSync) + '.'}</p>
+    <div class="btns"><button class="btn primary" data-act="sync-now">Sync now</button>${PICKER_READY?`<button class="btn" data-act="pick">Open a shared ledger</button>`:''}<button class="btn" data-act="discover">Find my ledgers</button><button class="btn ghost" data-act="disconnect">Disconnect</button></div>`;
+  return `<div class="stack" style="gap:14px"><div class="row"><h2>Settings</h2><span class="spacer"></span><button class="btn sm ghost" data-act="close">Close</button></div>
+    <div class="sect"><h3>Google Drive</h3>${drive}</div>
+    <div class="sect"><h3>Backup</h3><p>Save everything to a file, or restore from one. Restoring merges with what’s already here.</p>
+      <div class="btns"><button class="btn" data-act="export-json">Save backup file</button><button class="btn" data-act="import-json">Restore from file</button></div></div>
+    ${INSTALL.prompt ? `<div class="sect"><h3>Install</h3><p>Add Split Money to your home screen so it opens like an app, even offline.</p><div class="btns"><button class="btn" data-act="install">Install Split Money</button></div></div>` : ''}
+    <div class="sect"><h3>On this phone</h3><p><span class="num">${nG}</span> groups · <span class="num">${nE}</span> entries${S.usage?` · ${S.usage}`:''}. ${S.storageOk ? 'Stored in this browser’s app storage.' : 'Storage is blocked in this browser.'}</p></div>
+  </div>`;
+}
+
+function sheetGroup(){
+  const d = SH.d, f = S.meta.files[d.id] || {};
+  if (!SH.isNew && f.readOnly) return `<div class="stack" style="gap:14px"><h2>${esc(d.name)}</h2><p class="muted" style="margin:0">You have view-only access to this trip. Ask the owner if you need to add expenses.</p>${SH.confirmDel?`<div class="confirm"><span style="flex:1;min-width:180px">Remove this trip from your phone? The owner’s copy stays, and you can open it again from Drive.</span><button class="btn sm" data-act="cancel-del">Keep</button><button class="btn sm danger solid" data-act="do-del-group">Remove</button></div>`:''}<div class="actions"><button class="btn danger" data-act="del-group" style="margin-right:auto">Remove from this phone</button><button class="btn" data-act="close">Close</button></div></div>`;
+  let driveSect = '';
+  if (!SH.isNew && DRIVE_READY && !d.example) {
+    if (f.fileId && !f.broken) driveSect = `<div class="sect"><h3>Share with friends</h3><p>This group is saved as a file in Google Drive. Open it in Drive, tap Share and add each friend: <b>Viewer</b> if only you should add expenses, <b>Editor</b> if they should add too. Each friend then opens Split Money, connects Drive and taps “Open a shared ledger”. Share only this file, so they see only this trip.</p><div class="btns"><a class="btn" href="https://drive.google.com/file/d/${esc(f.fileId)}/view" target="_blank" rel="noopener">Open in Google Drive</a></div></div>`;
+    else if (Sync.state==='off' || Sync.state==='expired') driveSect = `<div class="sect"><h3>Share with friends</h3><p>Connect Google Drive to save this group as a file you can share.</p><div class="btns"><button class="btn" data-act="connect">Connect Google Drive</button></div></div>`;
+    else driveSect = `<div class="sect"><h3>Share with friends</h3><p>Saving to Drive… The share button appears after the first sync.</p></div>`;
+  }
+  return `<div class="stack" style="gap:14px"><h2>${SH.isNew?'New group':'Edit group'}</h2>
+    <div class="field"><label for="g-name">Group name</label><input class="inp" id="g-name" data-f="name" value="${esc(d.name)}" placeholder="Goa trip, Flat 302, Friday dinners" data-autofocus></div>
+    <div class="field"><label for="g-cur">Currency</label><select class="inp" id="g-cur" data-f="currency">${Object.keys(CUR).map(k=>`<option value="${k}" ${d.currency===k?'selected':''}>${k} (${CUR[k].trim()})</option>`).join('')}</select></div>
+    <div><div class="lab" style="margin-bottom:4px">People</div>
+      <div>${d.members.map(m => { const used = SH.used.has(m.id);
+        return `<div class="mrow">${av(m.name,m.id)}<input class="inp" id="mn-${m.id}" data-mname="${m.id}" value="${esc(m.name)}" aria-label="Name" style="flex:1"><button class="btn sm ghost" data-act="rm-member" data-id="${m.id}" ${used?'disabled title="Has expenses in this group"':''} aria-label="Remove ${esc(m.name)}">✕</button></div>`; }).join('')}</div>
+      <div class="row" style="margin-top:8px"><input class="inp" id="g-newm" placeholder="Add a person's name" enterkeyhint="done"><button class="btn" data-act="add-member">Add</button></div>
+      <p class="note" style="margin:6px 0 0">People with expenses can be renamed but not removed.</p>
+    </div>
+    ${SH.err?`<div class="status bad">${esc(SH.err)}</div>`:''}
+    ${driveSect}
+    ${SH.confirmDel?`<div class="confirm"><span style="flex:1;min-width:180px">Remove “${esc(d.name)}” from this phone?${f.fileId&&!f.broken?' The Drive file and your friends’ copies stay. Delete the file in Google Drive if nobody needs it.':' This can’t be undone.'}</span><button class="btn sm" data-act="cancel-del">Keep</button><button class="btn sm danger solid" data-act="do-del-group">Remove</button></div>`:''}
+    <div class="actions">${SH.isNew?'':`<button class="btn danger" data-act="del-group" style="margin-right:auto">Remove group</button>`}<button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="save-group">${SH.isNew?'Create group':'Save'}</button></div>
+  </div>`;
+}
+
+function sheetExpense(){
+  const d = SH.d, g = S.groups[SH.gid], cur = g.currency;
+  return `<div class="stack" style="gap:14px"><h2>${SH.isNew?'Add expense':'Edit expense'}</h2>
+    <div class="field"><label for="e-desc">Description</label><input class="inp" id="e-desc" data-f="desc" value="${esc(d.desc)}" placeholder="Dinner at Thalassa" data-autofocus></div>
+    <div class="field"><label for="e-amt">Amount</label><div class="amt-wrap"><span>${esc(CUR[cur].trim())}</span><input id="e-amt" data-f="amount" inputmode="decimal" value="${esc(d.amount)}" placeholder="0"></div></div>
+    <div class="grid2"><div class="field"><label for="e-paid">Paid by</label><select class="inp" id="e-paid" data-f="paidBy">${g.members.map(m=>`<option value="${m.id}" ${m.id===d.paidBy?'selected':''}>${esc(m.name)}</option>`).join('')}</select></div>
+      <div class="field"><label for="e-date">Date</label><input class="inp" type="date" id="e-date" data-f="date" value="${esc(d.date)}"></div></div>
+    <div><div class="lab" style="margin-bottom:6px">Category</div><div class="cats">${CATS.map(c=>`<button class="pill" aria-pressed="${d.category===c[0]}" data-act="cat" data-k="${c[0]}">${c[1]}</button>`).join('')}</div></div>
+    <div><div class="lab" style="margin-bottom:6px">Split</div>
+      <div class="seg">${[['equal','Equally'],['exact','Exact'],['percent','%'],['shares','Shares']].map(([k,l])=>`<button aria-pressed="${d.mode===k}" data-act="mode" data-k="${k}">${l}</button>`).join('')}</div>
+      <div id="splitrows" style="margin-top:8px">${splitRows()}</div>
+      <div id="splitstatus" style="margin-top:8px"></div></div>
+    <div class="field"><label for="e-note">Note (optional)</label><input class="inp" id="e-note" data-f="note" value="${esc(d.note||'')}" placeholder="Booking ref, who forgot their wallet…"></div>
+    ${SH.err?`<div class="status bad">${esc(SH.err)}</div>`:''}
+    ${SH.confirmDel?`<div class="confirm"><span style="flex:1;min-width:160px">Delete this expense for everyone in the group?</span><button class="btn sm" data-act="cancel-del">Keep</button><button class="btn sm danger solid" data-act="do-del-exp">Delete</button></div>`:''}
+    <div class="actions">${SH.isNew?'':`<button class="btn danger" data-act="del-exp" style="margin-right:auto">Delete</button>`}<button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="save-exp">${SH.isNew?'Add expense':'Save'}</button></div>
+  </div>`;
+}
+function splitRows(){
+  const d = SH.d, g = S.groups[SH.gid];
+  return g.members.map(m => {
+    if (d.mode==='equal') return `<label class="srow" for="sel-${m.id}"><input type="checkbox" id="sel-${m.id}" data-sel="${m.id}" ${d.sel[m.id]?'checked':''}><span class="nm">${av(m.name,m.id)}${esc(m.name)}</span><span class="pv" id="pv-${m.id}"></span></label>`;
+    return `<div class="srow"><span class="nm">${av(m.name,m.id)}${esc(m.name)}</span><span class="pv" id="pv-${m.id}"></span><input class="inp" id="val-${m.id}" data-val="${m.id}" inputmode="decimal" value="${esc(d.vals[m.id]??'')}" placeholder="${d.mode==='percent'?'0 %':'0'}" aria-label="${esc(m.name)} ${d.mode}"></div>`;
+  }).join('');
+}
+function updateSplit(){
+  if (!SH || SH.type!=='expense') return;
+  const g = S.groups[SH.gid]; SH.d.cur = g.currency; const r = computeShares(SH.d, g.members);
+  g.members.forEach(m => { const el = document.getElementById('pv-'+m.id); if (el) el.textContent = r.shares[m.id] && SH.d.mode!=='exact' ? fmt(r.shares[m.id], g.currency) : ''; });
+  const st = $('#splitstatus'); if (st) st.innerHTML = `<div class="status ${r.ok?'ok':(toPaise(SH.d.amount)>0?'bad':'')}">${esc(r.msg)}</div>`;
+}
+
+function sheetPayment(){
+  const d = SH.d, g = S.groups[SH.gid], cur = g.currency;
+  const opts = id => g.members.map(m=>`<option value="${m.id}" ${m.id===id?'selected':''}>${esc(m.name)}</option>`).join('');
+  return `<div class="stack" style="gap:14px"><h2>${SH.isNew?'Record a payment':'Edit payment'}</h2>
+    <div class="grid2"><div class="field"><label for="p-from">Who paid</label><select class="inp" id="p-from" data-f="from">${opts(d.from)}</select></div>
+      <div class="field"><label for="p-to">Paid to</label><select class="inp" id="p-to" data-f="to">${opts(d.to)}</select></div></div>
+    <div class="field"><label for="p-amt">Amount</label><div class="amt-wrap"><span>${esc(CUR[cur].trim())}</span><input id="p-amt" data-f="amount" inputmode="decimal" value="${esc(d.amount)}" placeholder="0" data-autofocus></div></div>
+    <div class="grid2"><div class="field"><label for="p-date">Date</label><input class="inp" type="date" id="p-date" data-f="date" value="${esc(d.date)}"></div>
+      <div class="field"><label for="p-via">Paid via</label><select class="inp" id="p-via" data-f="via">${['UPI','Cash','Bank transfer','Card','Other'].map(x=>`<option ${d.via===x?'selected':''}>${x}</option>`).join('')}</select></div></div>
+    <p class="note" style="margin:0">This only records the payment in Split Money. Send the money yourself in your UPI or bank app.</p>
+    ${SH.err?`<div class="status bad">${esc(SH.err)}</div>`:''}
+    ${SH.confirmDel?`<div class="confirm"><span style="flex:1;min-width:160px">Delete this payment?</span><button class="btn sm" data-act="cancel-del">Keep</button><button class="btn sm danger solid" data-act="do-del-exp">Delete</button></div>`:''}
+    <div class="actions">${SH.isNew?'':`<button class="btn danger" data-act="del-exp" style="margin-right:auto">Delete</button>`}<button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="save-pay">${SH.isNew?'Record payment':'Save'}</button></div>
+  </div>`;
+}
+
+function expenseDraft(g, e){
+  const me = meOf(g.id); const all = {}; g.members.forEach(m => all[m.id] = true);
+  if (!e) return {desc:'', amount:'', paidBy: (me && g.members.some(m=>m.id===me)) ? me : g.members[0].id, date:today(), category:'food', mode:'equal', sel:all, vals:{}, note:''};
+  const d = {desc:e.desc, amount:String(e.amount/100), paidBy:e.paidBy, date:e.date, category:e.category, mode:e.mode||'exact', sel:{}, vals:{}, note:e.note||''};
+  if (d.mode==='equal') Object.keys(e.shares).forEach(k => d.sel[k] = true);
+  else if (e.input) d.vals = {...e.input};
+  else { d.mode = 'exact'; Object.entries(e.shares).forEach(([k,v]) => d.vals[k] = String(v/100)); }
+  return d;
+}
+
+/* ================= Helpers ================= */
+let toastT;
+function toast(msg){ const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 2800); }
+function download(name, text, type){
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], {type})); a.download = name;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+const safeName = s => String(s).replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'-') || 'hisaab';
+
+async function createExample(){
+  const gid = 'g'+uid(); const ids = [0,1,2,3].map(() => 'm'+uid());
+  const names = ['Omkar','Rahul','Priya','Sneha'];
+  const g = {id:gid, name:'Goa trip', example:true, currency:'INR', members:ids.map((id,i)=>({id, name:names[i]})), createdAt:Date.now()};
+  await writeDoc('groups', g);
+  const t = Date.now(); const mk = (o,i) => ({id:'e'+uid(), groupId:gid, kind:'expense', createdAt:t+i, note:'', ...o});
+  const exps = [
+    mk({desc:'Villa in Assagao, 3 nights', amount:2400000, paidBy:ids[0], category:'stay', date:'2026-10-17', mode:'equal', shares:splitEven(2400000, ids)},0),
+    mk({desc:'Scooter rentals', amount:360000, paidBy:ids[1], category:'travel', date:'2026-10-17', mode:'equal', shares:splitEven(360000, ids)},1),
+    mk({desc:'Dinner at a beach shack', amount:485000, paidBy:ids[2], category:'food', date:'2026-10-18', mode:'equal', shares:splitEven(485000, ids)},2),
+    mk({desc:'Petrol', amount:120000, paidBy:ids[1], category:'fuel', date:'2026-10-18', mode:'equal', shares:splitEven(120000, [ids[0],ids[1]])},3),
+    mk({desc:'Parasailing', amount:600000, paidBy:ids[3], category:'fun', date:'2026-10-19', mode:'exact', input:{[ids[0]]:'2000',[ids[2]]:'2000',[ids[3]]:'2000'}, shares:{[ids[0]]:200000,[ids[2]]:200000,[ids[3]]:200000}},4),
+    mk({desc:'Flea market shopping', amount:300000, paidBy:ids[0], category:'shopping', date:'2026-10-19', mode:'shares', input:{[ids[0]]:'1',[ids[2]]:'2'}, shares:{[ids[0]]:100000,[ids[2]]:200000}},5),
+    {id:'e'+uid(), groupId:gid, kind:'payment', createdAt:t+6, paidBy:ids[1], amount:300000, shares:{[ids[0]]:300000}, date:'2026-10-20', via:'UPI', desc:'Payment', category:'other'}
+  ];
+  for (const e of exps) { e.updatedAt = Date.now(); S.expenses[e.id] = e; }
+  await IDB.putMany('expenses', exps).catch(()=>{});
+  ls.set('hisaab-me-'+gid, ids[0]);
+  V.name='group'; V.gid=gid; V.tab='expenses'; render(); toast('Example added. It stays on this phone and never syncs.');
+}
+
+function summaryText(g){
+  const ex = groupExp(g.id), n = nets(g, ex), debts = V.simplify ? simplify(n) : pairwise(ex);
+  const spent = ex.filter(e=>e.kind!=='payment').reduce((a,e)=>a+e.amount,0);
+  return `${g.name} · Split Money\nTotal spent: ${fmt(spent,g.currency)}\n\n` + (debts.length ? 'To settle up:\n' + debts.map(d=>`• ${nameOf(g,d.from)} pays ${nameOf(g,d.to)} ${fmt(d.amt,g.currency)}`).join('\n') : 'Everyone is settled up.');
+}
+function csvFor(g){
+  const ex = groupExp(g.id).slice().reverse(); const q = s => `"${String(s).replace(/"/g,'""')}"`;
+  const head = ['Date','Description','Category','Type','Paid by','Amount', ...g.members.map(m=>m.name)];
+  const rows = ex.map(e => [e.date, e.kind==='payment' ? `Payment to ${nameOf(g,Object.keys(e.shares)[0])}` : e.desc, e.kind==='payment'?'':catOf(e.category)[1], e.kind==='payment'?'Payment':'Expense', nameOf(g,e.paidBy), (e.amount/100).toFixed(2), ...g.members.map(m => ((e.shares[m.id]||0)/100).toFixed(2))]);
+  return '﻿' + [head, ...rows].map(r => r.map(q).join(',')).join('\n');
+}
+async function importBackup(file){
+  try {
+    const j = JSON.parse(await file.text());
+    if (j.app!=='hisaab' || !Array.isArray(j.groups)) throw 0;
+    const pg = [], pe = [];
+    j.groups.forEach(g => { const l = S.groups[g.id]; if (!l || (g.updatedAt||0) > (l.updatedAt||0)) { S.groups[g.id] = g; pg.push(g); } });
+    (j.expenses||[]).forEach(e => { const l = S.expenses[e.id]; if (!l || (e.updatedAt||0) > (l.updatedAt||0)) { S.expenses[e.id] = e; pe.push(e); } });
+    await IDB.putMany('groups', pg); await IDB.putMany('expenses', pe);
+    render(); toast(`Restored ${pg.length} groups and ${pe.length} entries`); Sync.schedule();
+  } catch { toast('That file isn’t a Split Money backup.'); }
+}
+
+/* ================= Install prompt ================= */
+const INSTALL = { prompt: null };
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); INSTALL.prompt = e; });
+window.addEventListener('appinstalled', () => { INSTALL.prompt = null; toast('Split Money installed'); });
+
+/* ================= Events ================= */
+document.addEventListener('click', async ev => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  const a = b.dataset.act; const g = S.groups[V.gid];
+  switch (a) {
+    case 'home': V.name='home'; render(); window.scrollTo(0,0); break;
+    case 'open': V.name='group'; V.gid=b.dataset.id; V.tab='expenses'; render(); window.scrollTo(0,0); break;
+    case 'tab': V.tab=b.dataset.tab; render(); break;
+    case 'chip':
+      if (Sync.state==='expired' && navigator.onLine) { Sync.connect(true); break; }
+      if (Sync.state==='error' && navigator.onLine) { Sync.syncAll(false); break; }
+      S.usage = null; openSheet({type:'settings'});
+      if (navigator.storage && navigator.storage.estimate) navigator.storage.estimate().then(e => { S.usage = (e.usage/1048576).toFixed(1)+' MB used'; if (SH && SH.type==='settings') drawSheet(); }).catch(()=>{});
+      break;
+    case 'connect': await Sync.connect(); if (SH) drawSheet(); render(); break;
+    case 'disconnect': Sync.disconnect(); if (SH) drawSheet(); toast('Disconnected. Your data stays on this phone.'); break;
+    case 'sync-now': Sync.syncAll(false); break;
+    case 'discover': if (!Sync.hasToken()) { await Sync.connect(); break; } try { const n = await Sync.discover(); toast(n ? `Found ${n} ledger${n>1?'s':''}` : 'No new ledgers found in your Drive'); } catch {} break;
+    case 'pick': Sync.pick(); break;
+    case 'reupload': { const f = S.meta.files[V.gid]; if (f) { if (f.fileId) S.meta.hidden.push(f.fileId); delete S.meta.files[V.gid]; await saveMeta(); } render(); Sync.schedule(V.gid); toast('Will save as a new Drive file on the next sync.'); break; }
+    case 'install': if (INSTALL.prompt) { INSTALL.prompt.prompt(); INSTALL.prompt = null; drawSheet(); } break;
+    case 'export-json': {
+      const data = {app:'hisaab', v:1, backup:true, savedAt:Date.now(), groups:Object.values(S.groups).filter(x=>!x.example), expenses:Object.values(S.expenses).filter(e => S.groups[e.groupId] && !S.groups[e.groupId].example)};
+      download(`hisaab-backup-${today()}.json`, JSON.stringify(data), 'application/json'); break; }
+    case 'import-json': $('#importfile').click(); break;
+    case 'example': await createExample(); break;
+    case 'new-group': openSheet({type:'group', isNew:true, used:new Set(), d:{id:'g'+uid(), name:'', currency:'INR', members:[]}}); break;
+    case 'edit-group': { const used = new Set(); groupExp(g.id).forEach(e => { used.add(e.paidBy); Object.keys(e.shares).forEach(k=>used.add(k)); });
+      openSheet({type:'group', isNew:false, used, d:JSON.parse(JSON.stringify(g))}); break; }
+    case 'add-member': { const inp = $('#g-newm'); const nm = inp.value.trim(); if (!nm) { inp.focus(); break; }
+      if (SH.d.members.length >= 20) { SH.err = 'A group can have up to 20 people.'; drawSheet(); break; }
+      SH.d.members.push({id:'m'+uid(), name:nm}); SH.err=null; drawSheet(); $('#g-newm').focus(); break; }
+    case 'rm-member': SH.d.members = SH.d.members.filter(m=>m.id!==b.dataset.id); SH.d.removed = [...(SH.d.removed||[]), b.dataset.id]; drawSheet(); break;
+    case 'save-group': { const d = SH.d; d.name = d.name.trim(); d.members = d.members.map(m=>({...m, name:m.name.trim()})).filter(m=>m.name);
+      if (!d.name) { SH.err='Give the group a name.'; drawSheet(); break; }
+      if (d.members.length<2) { SH.err='Add at least two people.'; drawSheet(); break; }
+      if (!d.createdAt) d.createdAt = Date.now();
+      const isNew = SH.isNew; await writeDoc('groups', d); closeSheet();
+      if (isNew) { V.name='group'; V.gid=d.id; V.tab='expenses'; }
+      render(); toast(isNew ? 'Group created' : 'Group saved'); break; }
+    case 'del-group': case 'del-exp': SH.confirmDel = true; drawSheet(); updateSplit(); break;
+    case 'cancel-del': SH.confirmDel = false; drawSheet(); updateSplit(); break;
+    case 'do-del-group': { const id = SH.d.id; const f = S.meta.files[id];
+      if (f && f.fileId) S.meta.hidden.push(f.fileId); delete S.meta.files[id]; await saveMeta();
+      const eids = Object.values(S.expenses).filter(e=>e.groupId===id).map(e=>e.id);
+      eids.forEach(k => delete S.expenses[k]); delete S.groups[id];
+      await IDB.delMany('expenses', eids).catch(()=>{}); await IDB.del('groups', id).catch(()=>{});
+      closeSheet(); V.name='home'; render(); toast('Group removed from this phone'); break; }
+    case 'add-expense': if (!g || isRO(g.id)) break; openSheet({type:'expense', isNew:true, gid:g.id, id:'e'+uid(), d:expenseDraft(g)}); updateSplit(); break;
+    case 'edit-exp': { const e = S.expenses[b.dataset.id]; if (!e || isRO(g.id)) break;
+      if (e.kind==='payment') openSheet({type:'payment', isNew:false, gid:g.id, id:e.id, createdAt:e.createdAt, d:{from:e.paidBy, to:Object.keys(e.shares)[0], amount:String(e.amount/100), date:e.date, via:e.via||'UPI'}});
+      else { openSheet({type:'expense', isNew:false, gid:g.id, id:e.id, createdAt:e.createdAt, d:expenseDraft(g, e)}); updateSplit(); } break; }
+    case 'cat': SH.d.category = b.dataset.k; document.querySelectorAll('[data-act="cat"]').forEach(x => x.setAttribute('aria-pressed', x.dataset.k===SH.d.category)); break;
+    case 'mode': { const d = SH.d; if (d.mode===b.dataset.k) break; d.mode = b.dataset.k; d.vals = {};
+      const ids = S.groups[SH.gid].members.map(m=>m.id);
+      if (d.mode==='percent') { const each = Math.floor(10000/ids.length)/100; ids.forEach((id,i)=> d.vals[id] = String(i===0 ? +(100-each*(ids.length-1)).toFixed(2) : each)); }
+      if (d.mode==='shares') ids.forEach(id => d.vals[id] = '1');
+      document.querySelectorAll('[data-act="mode"]').forEach(x => x.setAttribute('aria-pressed', x.dataset.k===d.mode));
+      $('#splitrows').innerHTML = splitRows(); updateSplit(); break; }
+    case 'save-exp': { const d = SH.d, gg = S.groups[SH.gid]; d.cur = gg.currency; const r = computeShares(d, gg.members);
+      if (!d.desc.trim()) { SH.err = 'Add a short description.'; drawSheet(); updateSplit(); break; }
+      if (!r.ok) { SH.err = r.msg + '.'; drawSheet(); updateSplit(); break; }
+      const input = d.mode==='equal' ? null : Object.fromEntries(Object.entries(d.vals).filter(([,v]) => v!=='' && v!=null));
+      const isNew = SH.isNew;
+      await writeDoc('expenses', {id:SH.id, groupId:SH.gid, kind:'expense', desc:d.desc.trim(), amount:toPaise(d.amount), paidBy:d.paidBy, shares:r.shares, mode:d.mode, input, category:d.category, date:d.date||today(), note:d.note.trim(), createdAt:SH.createdAt||Date.now()});
+      closeSheet(); toast(isNew?'Expense added':'Expense updated'); break; }
+    case 'do-del-exp': { const e = S.expenses[SH.id]; if (e) await writeDoc('expenses', {...e, deleted:true}); closeSheet(); toast('Deleted'); break; }
+    case 'settle': { if (isRO(g.id)) break; const me = meOf(g.id); const f = b.dataset.from || (me && g.members.some(m=>m.id===me) ? me : g.members[0].id); const t = b.dataset.to || g.members.find(m=>m.id!==f).id;
+      openSheet({type:'payment', isNew:true, gid:g.id, id:'e'+uid(), d:{from:f, to:t, amount: b.dataset.amt ? String(+b.dataset.amt/100) : '', date:today(), via:'UPI'}}); break; }
+    case 'save-pay': { const d = SH.d, amt = toPaise(d.amount);
+      if (d.from===d.to) { SH.err = 'Pick two different people.'; drawSheet(); break; }
+      if (!(amt>0)) { SH.err = 'Enter the amount paid.'; drawSheet(); break; }
+      await writeDoc('expenses', {id:SH.id, groupId:SH.gid, kind:'payment', desc:'Payment', category:'other', paidBy:d.from, amount:amt, shares:{[d.to]:amt}, date:d.date||today(), via:d.via, createdAt:SH.createdAt||Date.now()});
+      closeSheet(); toast('Payment recorded'); break; }
+    case 'share-summary': { const txt = summaryText(g);
+      if (navigator.share) { try { await navigator.share({text: txt}); } catch {} break; }
+      try { await navigator.clipboard.writeText(txt); toast('Summary copied. Paste it in your group chat.'); }
+      catch { openSheet({type:'raw', html:`<div class="stack"><h2>Copy this summary</h2><textarea class="inp" id="copytxt" rows="8" readonly>${esc(txt)}</textarea><div class="actions"><button class="btn primary" data-act="close">Done</button></div></div>`}); const ta = $('#copytxt'); ta.focus(); ta.select(); } break; }
+    case 'csv': download(`${safeName(g.name)}-hisaab.csv`, csvFor(g), 'text/csv'); break;
+    case 'close': closeSheet(); break;
+  }
+});
+document.addEventListener('input', ev => {
+  const t = ev.target; if (!SH) return;
+  if (t.dataset.f) { SH.d[t.dataset.f] = t.value; if (t.dataset.f==='amount') updateSplit(); }
+  else if (t.dataset.mname) { const m = SH.d.members.find(x=>x.id===t.dataset.mname); if (m) m.name = t.value; }
+  else if (t.dataset.val) { SH.d.vals[t.dataset.val] = t.value; updateSplit(); }
+});
+document.addEventListener('change', ev => {
+  const t = ev.target;
+  if (t.id==='viewas') { ls.set('hisaab-me-'+V.gid, t.value || null); render(); return; }
+  if (t.id==='simp') { V.simplify = t.checked; ls.set('hisaab-simplify', t.checked); render(); return; }
+  if (t.id==='importfile') { if (t.files[0]) importBackup(t.files[0]); t.value=''; return; }
+  if (SH && t.dataset.sel) { SH.d.sel[t.dataset.sel] = t.checked; updateSplit(); }
+  if (SH && t.dataset.f && t.tagName==='SELECT') SH.d[t.dataset.f] = t.value;
+});
+document.addEventListener('keydown', ev => {
+  if (ev.key==='Escape' && SH) closeSheet();
+  if (ev.key==='Enter' && ev.target.id==='g-newm') { ev.preventDefault(); $('[data-act="add-member"]').click(); }
+});
+$('#overlay').addEventListener('click', ev => { if (ev.target.id==='overlay') closeSheet(); });
+window.addEventListener('online', () => { setChip(); Sync.syncAll(false); });
+window.addEventListener('offline', setChip);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState==='visible') { setChip(); Sync.syncAll(false); } });
+setInterval(() => { if (document.visibilityState==='visible') { if (Sync.state==='ok' && !Sync.hasToken()) { Sync.state='expired'; } setChip(); Sync.syncAll(false); } }, 90000);
+
+/* ================= Start ================= */
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(()=>{});
+render();
+loadAll().then(() => { Sync.restore(); setChip(); render(); Sync.syncAll(true); });
+})();
+</script>
+</body>
+</html>
